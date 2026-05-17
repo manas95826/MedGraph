@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MedGraph — Medical Knowledge Explorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg0:    #0a0c10;
+    --bg1:    #10141c;
+    --bg2:    #161b27;
+    --bg3:    #1e2535;
+    --border: rgba(255,255,255,0.07);
+    --border2:rgba(255,255,255,0.13);
+    --text:   #e2e8f0;
+    --muted:  #7a8599;
+    --accent: #3b82f6;
+    --accent2:#06b6d4;
+    --green:  #10b981;
+    --purple: #a855f7;
+    --amber:  #f59e0b;
+    --red:    #ef4444;
+    --pink:   #ec4899;
+    --font-sans: 'Sora', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --r: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg0); color: var(--text); font-family: var(--font-sans); font-size: 14px; overflow: hidden; }
+
+  /* ── Layout ── */
+  .app { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
+  .topbar { grid-column: 1/-1; background: var(--bg1); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 10; }
+  .sidebar { background: var(--bg1); border-right: 1px solid var(--border); padding: 12px 0; overflow-y: auto; }
+  .main { overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── Topbar ── */
+  .logo { font-size: 16px; font-weight: 700; color: var(--accent2); letter-spacing: -0.3px; }
+  .logo span { color: var(--text); font-weight: 300; }
+  .health-dot { width: 7px; height: 7px; border-radius: 50%; margin-left: auto; }
+  .health-dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .health-dot.err { background: var(--red); }
+  .health-label { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+
+  /* ── Sidebar nav ── */
+  .nav-section { padding: 4px 12px 2px; font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 8px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; cursor: pointer; border-left: 2px solid transparent; transition: all .15s; font-size: 13px; color: var(--muted); }
+  .nav-item:hover  { background: var(--bg2); color: var(--text); }
+  .nav-item.active { background: rgba(59,130,246,.1); border-left-color: var(--accent); color: var(--accent); }
+  .nav-item .icon { width: 16px; text-align: center; font-size: 15px; }
+
+  /* ── Tabs / panels ── */
+  .panel { display: none; flex: 1; overflow: hidden; padding: 20px; flex-direction: column; gap: 16px; }
+  .panel.active { display: flex; }
+  .panel-scroll { flex: 1; overflow-y: auto; }
+
+  /* ── Cards ── */
+  .card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; }
+  .card-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-family: var(--font-mono); }
+
+  /* ── Stat pills ── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .stat-value { font-size: 26px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .c-blue   { color: var(--accent); }
+  .c-green  { color: var(--green); }
+  .c-purple { color: var(--purple); }
+  .c-amber  { color: var(--amber); }
+  .c-red    { color: var(--red); }
+  .c-cyan   { color: var(--accent2); }
+
+  /* ── Charts row ── */
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .chart-wrap { position: relative; height: 200px; }
+
+  /* ── Graph explorer ── */
+  #graph-canvas { width: 100%; height: 100%; background: var(--bg0); border-radius: var(--r); cursor: grab; }
+  #graph-canvas:active { cursor: grabbing; }
+  .graph-container { flex: 1; position: relative; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; min-height: 0; }
+  .graph-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg2); color: var(--text); cursor: pointer; font-size: 12px; font-family: var(--font-sans); transition: all .15s; }
+  .btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
+  .btn.active { background: rgba(59,130,246,.15); border-color: var(--accent); color: var(--accent); }
+
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── Node tooltip ── */
+  .tooltip { position: fixed; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 14px; font-size: 12px; pointer-events: none; z-index: 1000; max-width: 240px; display: none; }
+  .tooltip-type { font-family: var(--font-mono); font-size: 10px; color: var(--accent2); text-transform: uppercase; margin-bottom: 4px; }
+  .tooltip-name { font-weight: 600; margin-bottom: 4px; }
+  .tooltip-detail { color: var(--muted); font-size: 11px; }
+
+  /* ── Search ── */
+  .search-box { display: flex; gap: 10px; }
+  .search-input { flex: 1; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: var(--font-sans); font-size: 14px; outline: none; transition: border-color .15s; }
+  .search-input:focus { border-color: var(--accent); }
+  .search-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-family: var(--font-sans); font-size: 14px; font-weight: 600; transition: opacity .15s; }
+  .search-btn:hover { opacity: .85; }
+
+  .result-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; transition: border-color .15s; }
+  .result-card:hover { border-color: var(--border2); }
+  .result-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .result-title { font-size: 13px; font-weight: 600; line-height: 1.4; }
+  .score-badge { background: rgba(59,130,246,.15); color: var(--accent); font-family: var(--font-mono); font-size: 10px; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+  .result-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pill { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); border: 1px solid; }
+  .pill-blue   { color: var(--accent);  border-color: rgba(59,130,246,.3);  background: rgba(59,130,246,.08);  }
+  .pill-purple { color: var(--purple); border-color: rgba(168,85,247,.3); background: rgba(168,85,247,.08); }
+  .pill-green  { color: var(--green);  border-color: rgba(16,185,129,.3);  background: rgba(16,185,129,.08);  }
+  .pill-amber  { color: var(--amber);  border-color: rgba(245,158,11,.3);  background: rgba(245,158,11,.08);  }
+  .result-snippet { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  /* ── QA ── */
+  .qa-answer { background: var(--bg2); border: 1px solid rgba(59,130,246,.3); border-radius: 10px; padding: 18px; margin-top: 12px; }
+  .qa-answer-text { font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+  .qa-sources { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
+  .qa-source-tag { font-size: 10px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; background: var(--bg3); color: var(--muted); }
+
+  .graph-facts { margin-top: 14px; }
+  .gf-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); }
+  .gf-table th { text-align: left; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .gf-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  .gf-table tr:last-child td { border-bottom: none; }
+
+  .loading { color: var(--muted); font-family: var(--font-mono); font-size: 12px; padding: 20px 0; text-align: center; }
+  .loading::after { content: ''; animation: dots 1.2s steps(3, end) infinite; }
+  @keyframes dots { 0%{content:''} 33%{content:'.'} 66%{content:'..'} 100%{content:'...'} }
+
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .filter-label { font-size: 11px; color: var(--muted); }
+  select.filter-select { background: var(--bg2); border: 1px solid var(--border2); color: var(--text); border-radius: 6px; padding: 5px 10px; font-size: 12px; outline: none; font-family: var(--font-sans); cursor: pointer; }
+
+  /* ── Compound detail panel ── */
+  .compound-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .compound-chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all .15s; text-align: center; }
+  .compound-chip:hover { border-color: var(--purple); background: rgba(168,85,247,.08); }
+  .compound-chip .cname { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--purple); }
+  .compound-chip .ctype { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+
+  /* ── Sample questions ── */
+  .sample-q { display: inline-block; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; padding: 6px 12px; font-size: 12px; color: var(--muted); cursor: pointer; margin: 4px 4px 4px 0; transition: all .15s; }
+  .sample-q:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="logo">Med<span>Graph</span></div>
+    <span style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">Medical Research Knowledge Explorer</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <span class="health-label" id="health-label">checking...</span>
+      <div class="health-dot" id="health-dot"></div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-section">Explore</div>
+    <div class="nav-item active" onclick="showPanel('dashboard')">
+      <span class="icon">◈</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showPanel('graph')">
+      <span class="icon">⬡</span> Graph Explorer
+    </div>
+    <div class="nav-section">Query</div>
+    <div class="nav-item" onclick="showPanel('search')">
+      <span class="icon">◎</span> Semantic Search
+    </div>
+    <div class="nav-item" onclick="showPanel('qa')">
+      <span class="icon">◇</span> Ask the Graph
+    </div>
+    <div class="nav-section">Details</div>
+    <div class="nav-item" onclick="showPanel('compounds')">
+      <span class="icon">⬦</span> Compounds
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- ─── DASHBOARD ─── -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="stats-row" id="stat-row">
+        <div class="stat"><div class="stat-value c-blue" id="s-papers">—</div><div class="stat-label">Papers</div></div>
+        <div class="stat"><div class="stat-value c-purple" id="s-compounds">—</div><div class="stat-label">Compounds</div></div>
+        <div class="stat"><div class="stat-value c-red" id="s-diseases">—</div><div class="stat-label">Diseases</div></div>
+        <div class="stat"><div class="stat-value c-amber" id="s-institutions">—</div><div class="stat-label">Institutions</div></div>
+      </div>
+      <div class="charts-row">
+        <div class="card">
+          <div class="card-title">Papers per year</div>
+          <div class="chart-wrap"><canvas id="chart-timeline"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Study methods</div>
+          <div class="chart-wrap"><canvas id="chart-methods"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Avg efficacy by year</div>
+          <div class="chart-wrap"><canvas id="chart-efficacy"></canvas></div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="card">
+          <div class="card-title">Top compounds by studies</div>
+          <div class="chart-wrap"><canvas id="chart-compounds"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Top diseases</div>
+          <div class="chart-wrap"><canvas id="chart-diseases"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Top institutions</div>
+          <div class="chart-wrap"><canvas id="chart-institutions"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── GRAPH EXPLORER ─── -->
+    <div class="panel" id="panel-graph">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div class="graph-controls" id="graph-controls">
+          <button class="btn active" onclick="filterGraph('all', this)">All</button>
+          <button class="btn" onclick="filterGraph('Paper', this)" style="border-color:rgba(79,142,247,.4);color:#4F8EF7">Papers</button>
+          <button class="btn" onclick="filterGraph('Compound', this)" style="border-color:rgba(224,92,244,.4);color:#E05CF4">Compounds</button>
+          <button class="btn" onclick="filterGraph('Disease', this)" style="border-color:rgba(247,79,79,.4);color:#F74F4F">Diseases</button>
+          <button class="btn" onclick="filterGraph('Researcher', this)" style="border-color:rgba(52,199,138,.4);color:#34C78A">Researchers</button>
+          <button class="btn" onclick="filterGraph('Institution', this)" style="border-color:rgba(245,166,35,.4);color:#F5A623">Institutions</button>
+        </div>
+        <div class="legend" style="margin-left:auto">
+          <div class="legend-item"><div class="legend-dot" style="background:#4F8EF7"></div>Paper</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#34C78A"></div>Researcher</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#F5A623"></div>Institution</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#E05CF4"></div>Compound</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#F74F4F"></div>Disease</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#4FCFF5"></div>Journal</div>
+        </div>
+      </div>
+      <div class="graph-container">
+        <svg id="graph-canvas"></svg>
+      </div>
+    </div>
+
+    <!-- ─── SEARCH ─── -->
+    <div class="panel" id="panel-search">
+      <div class="search-box">
+        <input class="search-input" id="search-input" placeholder="e.g. compounds effective against H. pylori in 2023..." onkeydown="if(event.key==='Enter')doSearch()"/>
+        <button class="search-btn" onclick="doSearch()">Search</button>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter by year:</span>
+        <select class="filter-select" id="year-filter">
+          <option value="">All years</option>
+          <option>2019</option><option>2020</option><option>2021</option>
+          <option>2022</option><option>2023</option><option>2024</option>
+        </select>
+      </div>
+      <div class="panel-scroll" id="search-results">
+        <div class="loading" style="display:none" id="search-loading">Searching</div>
+        <div id="search-list"></div>
+      </div>
+    </div>
+
+    <!-- ─── QA ─── -->
+    <div class="panel" id="panel-qa">
+      <div class="search-box">
+        <input class="search-input" id="qa-input" placeholder="e.g. Which researchers worked with BioLab on antimicrobial compounds?" onkeydown="if(event.key==='Enter')doQA()"/>
+        <button class="search-btn" onclick="doQA()">Ask</button>
+      </div>
+      <div style="margin-top:4px">
+        <span style="font-size:11px;color:var(--muted)">Try: </span>
+        <span class="sample-q" onclick="setQ('Which compounds show the highest efficacy against cancer?')">Highest efficacy against cancer</span>
+        <span class="sample-q" onclick="setQ('Which researchers published the most antimicrobial studies?')">Top antimicrobial researchers</span>
+        <span class="sample-q" onclick="setQ('What compounds were tested against H. pylori infection?')">H. pylori compounds</span>
+        <span class="sample-q" onclick="setQ('Which institutions collaborate the most in antiviral research?')">Antiviral collaborations</span>
+      </div>
+      <div class="panel-scroll" id="qa-area">
+        <div class="loading" style="display:none" id="qa-loading">Traversing graph + searching vectors</div>
+        <div id="qa-result"></div>
+      </div>
+    </div>
+
+    <!-- ─── COMPOUNDS ─── -->
+    <div class="panel" id="panel-compounds">
+      <div class="compound-grid" id="compound-grid"></div>
+      <div style="display:flex;gap:16px;margin-top:4px;flex:1;min-height:0">
+        <div style="flex:0 0 260px">
+          <div class="card" style="height:100%">
+            <div class="card-title">Compound subgraph</div>
+            <svg id="sub-graph" style="width:100%;height:340px;background:var(--bg0);border-radius:8px"></svg>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div class="card" style="height:100%">
+            <div class="card-title" id="compound-detail-title">Select a compound</div>
+            <div id="compound-detail"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip">
+  <div class="tooltip-type" id="tt-type"></div>
+  <div class="tooltip-name" id="tt-name"></div>
+  <div class="tooltip-detail" id="tt-detail"></div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let allNodes = [], allEdges = [], graphSim = null;
+
+// ── Panel navigation ──────────────────────────────────────────────────────────
+function showPanel(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'graph' && !allNodes.length) loadGraph();
+  if (name === 'dashboard')                loadDashboard();
+  if (name === 'compounds')                loadCompounds();
+}
+
+// ── Health check ──────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    const d = await r.json();
+    const ok = d.neo4j === 'ok' && d.qdrant === 'ok';
+    document.getElementById('health-dot').className = 'health-dot ' + (ok ? 'ok' : 'err');
+    document.getElementById('health-label').textContent = ok ? 'All systems up' : 'Service error';
+  } catch { document.getElementById('health-dot').className = 'health-dot err'; }
+}
+
+// ── Chart defaults ────────────────────────────────────────────────────────────
+Chart.defaults.color = '#7a8599';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 11;
+
+function mkChart(id, type, labels, datasets, extra={}) {
+  const el = document.getElementById(id);
+  if (el._chart) el._chart.destroy();
+  el._chart = new Chart(el, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1e2535', borderColor: 'rgba(255,255,255,.1)', borderWidth: 1 } },
+      scales: type === 'bar' || type === 'line' ? {
+        x: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { maxRotation: 30 } },
+        y: { grid: { color: 'rgba(255,255,255,.04)' }, beginAtZero: true },
+      } : {},
+      ...extra
+    }
+  });
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const r = await fetch(API + '/graph/stats');
+  const d = await r.json();
+
+  // Stat pills
+  const counts = {};
+  d.node_counts.forEach(c => counts[c.type] = c.cnt);
+  document.getElementById('s-papers').textContent      = counts.Paper || '—';
+  document.getElementById('s-compounds').textContent   = counts.Compound || '—';
+  document.getElementById('s-diseases').textContent    = counts.Disease || '—';
+  document.getElementById('s-institutions').textContent= counts.Institution || '—';
+
+  // Timeline
+  const tl = d.timeline;
+  mkChart('chart-timeline', 'bar',
+    tl.map(t => t.year),
+    [{ data: tl.map(t => t.papers), backgroundColor: 'rgba(59,130,246,.7)', borderRadius: 4 }]
+  );
+
+  // Methods (doughnut)
+  const palDoughnut = ['#3b82f6','#06b6d4','#10b981','#a855f7','#f59e0b','#ef4444','#ec4899','#64748b','#f97316','#8b5cf6'];
+  const mth = d.methods;
+  mkChart('chart-methods', 'doughnut',
+    mth.map(m => m.method.split(' ').slice(0,2).join(' ')),
+    [{ data: mth.map(m => m.cnt), backgroundColor: palDoughnut, borderWidth: 0 }],
+    { plugins: { legend: { display: true, position: 'right', labels: { boxWidth: 10, font: { size: 9 } } } } }
+  );
+
+  // Efficacy trend
+  mkChart('chart-efficacy', 'line',
+    tl.map(t => t.year),
+    [{ data: tl.map(t => Math.round(t.avg_eff)), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)', tension: 0.4, fill: true, pointRadius: 3 }]
+  );
+
+  // Top compounds (horizontal bar)
+  const cmp = d.top_compounds;
+  mkChart('chart-compounds', 'bar',
+    cmp.map(c => c.compound),
+    [{ data: cmp.map(c => c.studies), backgroundColor: 'rgba(168,85,247,.7)', borderRadius: 4 }],
+    { indexAxis: 'y' }
+  );
+
+  // Top diseases
+  const dis = d.top_diseases;
+  mkChart('chart-diseases', 'bar',
+    dis.map(d => d.disease.split(' ').slice(0,2).join(' ')),
+    [{ data: dis.map(d => d.papers), backgroundColor: 'rgba(239,68,68,.7)', borderRadius: 4 }],
+    { indexAxis: 'y' }
+  );
+
+  // Top institutions
+  const ins = d.top_institutions;
+  mkChart('chart-institutions', 'bar',
+    ins.map(i => i.institution.split(' ').slice(-1)[0]),
+    [{ data: ins.map(i => i.papers), backgroundColor: 'rgba(245,158,11,.7)', borderRadius: 4 }],
+    { indexAxis: 'y' }
+  );
+}
+
+// ── Graph Explorer ────────────────────────────────────────────────────────────
+async function loadGraph() {
+  const [nr, er] = await Promise.all([
+    fetch(API + '/graph/nodes').then(r => r.json()),
+    fetch(API + '/graph/edges').then(r => r.json()),
+  ]);
+  allNodes = nr.nodes;
+  allEdges = er.edges;
+  renderGraph(allNodes, allEdges);
+}
+
+function filterGraph(type, btn) {
+  document.querySelectorAll('#graph-controls .btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const nodes = type === 'all' ? allNodes : allNodes.filter(n => n.type === type);
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const edges = allEdges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+  renderGraph(nodes, edges);
+}
+
+function renderGraph(nodes, edges) {
+  const svg = d3.select('#graph-canvas');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('graph-canvas');
+  const W = container.clientWidth || 900;
+  const H = container.clientHeight || 500;
+
+  const g = svg.append('g');
+
+  // Zoom
+  svg.call(d3.zoom().scaleExtent([0.2, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+  // Arrow marker
+  svg.append('defs').append('marker')
+    .attr('id', 'arrowhead').attr('viewBox', '0 -4 8 8')
+    .attr('refX', 18).attr('refY', 0)
+    .attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(255,255,255,0.15)');
+
+  const nodeMap = {};
+  const simNodes = nodes.map(n => { const o = { ...n }; nodeMap[n.id] = o; return o; });
+  const simEdges = edges.map(e => ({ ...e,
+    source: nodeMap[e.source] || e.source,
+    target: nodeMap[e.target] || e.target,
+  })).filter(e => typeof e.source === 'object' && typeof e.target === 'object');
+
+  const link = g.append('g').selectAll('line').data(simEdges).join('line')
+    .attr('stroke', 'rgba(255,255,255,0.08)')
+    .attr('stroke-width', 1)
+    .attr('marker-end', 'url(#arrowhead)');
+
+  const sizeMap = { Paper: 9, Compound: 8, Disease: 8, Researcher: 7, Institution: 7, Journal: 6 };
+
+  const node = g.append('g').selectAll('g').data(simNodes).join('g')
+    .attr('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+    )
+    .on('mouseover', (e, d) => showTooltip(e, d))
+    .on('mousemove', moveTooltip)
+    .on('mouseout',  hideTooltip);
+
+  node.append('circle')
+    .attr('r', d => sizeMap[d.type] || 7)
+    .attr('fill', d => d.color)
+    .attr('fill-opacity', 0.85)
+    .attr('stroke', d => d.color)
+    .attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.4);
+
+  node.append('text')
+    .attr('dy', d => (sizeMap[d.type] || 7) + 11)
+    .attr('text-anchor', 'middle')
+    .attr('font-size', 9)
+    .attr('fill', 'rgba(255,255,255,0.5)')
+    .text(d => d.label.length > 16 ? d.label.slice(0, 15) + '…' : d.label);
+
+  const sim = d3.forceSimulation(simNodes)
+    .force('link', d3.forceLink(simEdges).id(d => d.id).distance(80))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(16))
+    .on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  graphSim = sim;
+}
+
+// ── Tooltip ──────────────────────────────────────────────────────────────────
+const tt = document.getElementById('tooltip');
+function showTooltip(e, d) {
+  document.getElementById('tt-type').textContent = d.type;
+  document.getElementById('tt-name').textContent = d.label;
+  const details = [];
+  if (d.year)     details.push('Year: ' + d.year);
+  if (d.efficacy) details.push('Efficacy: ' + d.efficacy + '%');
+  if (d.subtype)  details.push('Type: ' + d.subtype);
+  document.getElementById('tt-detail').textContent = details.join('  ·  ');
+  tt.style.display = 'block';
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  tt.style.left = (e.clientX + 14) + 'px';
+  tt.style.top  = (e.clientY - 10) + 'px';
+}
+function hideTooltip() { tt.style.display = 'none'; }
+
+// ── Search ────────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const year = document.getElementById('year-filter').value;
+  document.getElementById('search-loading').style.display = 'block';
+  document.getElementById('search-list').innerHTML = '';
+
+  const body = { query: q, limit: 10 };
+  if (year) body.year_filter = parseInt(year);
+
+  const r = await fetch(API + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  document.getElementById('search-loading').style.display = 'none';
+
+  const list = document.getElementById('search-list');
+  if (!d.results.length) { list.innerHTML = '<div style="color:var(--muted);padding:20px">No results found.</div>'; return; }
+
+  list.innerHTML = d.results.map(res => `
+    <div class="result-card">
+      <div class="result-header">
+        <div class="result-title">${res.title}</div>
+        <div class="score-badge">score ${res.score}</div>
+      </div>
+      <div class="result-meta">
+        <span class="pill pill-purple">${res.compound}</span>
+        <span class="pill pill-red">${res.disease}</span>
+        <span class="pill pill-blue">${res.year}</span>
+        <span class="pill pill-green">${res.efficacy}% efficacy</span>
+        <span class="pill pill-amber">${res.journal}</span>
+      </div>
+      <div class="result-snippet">${res.snippet}</div>
+    </div>
+  `).join('');
+}
+
+// ── QA ────────────────────────────────────────────────────────────────────────
+function setQ(q) {
+  document.getElementById('qa-input').value = q;
+}
+
+async function doQA() {
+  const q = document.getElementById('qa-input').value.trim();
+  if (!q) return;
+  document.getElementById('qa-loading').style.display = 'block';
+  document.getElementById('qa-result').innerHTML = '';
+
+  const r = await fetch(API + '/qa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
+  const d = await r.json();
+  document.getElementById('qa-loading').style.display = 'none';
+
+  const factsRows = d.graph_facts.slice(0, 6).map(f => `
+    <tr>
+      <td style="color:var(--purple)">${f.compound || '—'}</td>
+      <td style="color:var(--red)">${f.disease || '—'}</td>
+      <td style="color:var(--green)">${f.efficacy != null ? f.efficacy + '%' : '—'}</td>
+      <td style="color:var(--muted)">${f.year || '—'}</td>
+    </tr>
+  `).join('');
+
+  const sourceTags = d.semantic_sources.map(s =>
+    `<span class="qa-source-tag">${s.title.slice(0, 40)}… (${s.score})</span>`
+  ).join('');
+
+  document.getElementById('qa-result').innerHTML = `
+    <div class="qa-answer">
+      <div class="qa-answer-text">${d.answer}</div>
+      ${d.graph_facts.length ? `
+        <div class="graph-facts">
+          <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Graph facts used (Neo4j traversal)</div>
+          <table class="gf-table">
+            <tr><th>Compound</th><th>Disease</th><th>Efficacy</th><th>Year</th></tr>
+            ${factsRows}
+          </table>
+        </div>` : ''}
+      <div class="qa-sources">
+        <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">QDRANT HITS:</span>
+        ${sourceTags}
+      </div>
+    </div>
+  `;
+}
+
+// ── Compounds panel ───────────────────────────────────────────────────────────
+async function loadCompounds() {
+  const r = await fetch(API + '/graph/stats');
+  const d = await r.json();
+  const grid = document.getElementById('compound-grid');
+  grid.innerHTML = d.top_compounds.map(c => `
+    <div class="compound-chip" onclick="loadCompoundDetail('${c.compound}')">
+      <div class="cname">${c.compound}</div>
+      <div class="ctype">${c.type}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${c.studies} studies</div>
+      <div style="font-size:11px;color:var(--green)">${c.avg_efficacy}% avg</div>
+    </div>
+  `).join('');
+}
+
+async function loadCompoundDetail(name) {
+  document.getElementById('compound-detail-title').textContent = name + ' — subgraph';
+  const r = await fetch(API + '/graph/compound/' + encodeURIComponent(name));
+  const d = await r.json();
+
+  document.getElementById('compound-detail').innerHTML = `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-family:var(--font-mono)">${d.nodes.length} nodes  ·  ${d.edges.length} edges</div>
+    </div>
+    <table class="gf-table" style="font-size:12px">
+      <tr><th>Node</th><th>Type</th></tr>
+      ${d.nodes.map(n => `<tr><td style="color:${n.color}">${n.label}</td><td style="color:var(--muted)">${n.type}</td></tr>`).join('')}
+    </table>
+  `;
+
+  renderSubgraph(d.nodes, d.edges);
+}
+
+function renderSubgraph(nodes, edges) {
+  const svg = d3.select('#sub-graph');
+  svg.selectAll('*').remove();
+  const W = 260, H = 340;
+  const g = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+  const nodeMap = {};
+  const simNodes = nodes.map(n => { const o = { ...n }; nodeMap[n.id] = o; return o; });
+  const simEdges = edges.map(e => ({ ...e,
+    source: nodeMap[e.source] || e.source,
+    target: nodeMap[e.target] || e.target,
+  })).filter(e => typeof e.source === 'object' && typeof e.target === 'object');
+
+  const link = g.append('g').selectAll('line').data(simEdges).join('line')
+    .attr('stroke', 'rgba(255,255,255,0.12)').attr('stroke-width', 1);
+
+  const node = g.append('g').selectAll('g').data(simNodes).join('g');
+
+  node.append('circle')
+    .attr('r', d => d.type === 'Compound' ? 10 : 7)
+    .attr('fill', d => d.color).attr('fill-opacity', 0.9)
+    .attr('stroke', d => d.color).attr('stroke-width', 1.5).attr('stroke-opacity', 0.5);
+
+  node.append('text').attr('dy', 16).attr('text-anchor', 'middle')
+    .attr('font-size', 8).attr('fill', 'rgba(255,255,255,0.5)')
+    .text(d => d.label.length > 12 ? d.label.slice(0, 11) + '…' : d.label);
+
+  d3.forceSimulation(simNodes)
+    .force('link', d3.forceLink(simEdges).id(d => d.id).distance(55))
+    .force('charge', d3.forceManyBody().strength(-120))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(14))
+    .on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+checkHealth();
+loadDashboard();
+</script>
+</body>
+</html>

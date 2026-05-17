@@ -1,0 +1,14 @@
+cognee[qdrant]==0.2.1
+neo4j
+qdrant-client
+openai
+sentence-transformers
+fastapi
+uvicorn
+python-dotenv
+httpx
+numpy
+pandas
+networkx
+scikit-learn
+python-multipart
