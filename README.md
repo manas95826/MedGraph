@@ -29,24 +29,24 @@ A full-stack **GraphRAG** (Graph Retrieval-Augmented Generation) system built on
 ┌────────────────┐   ┌──────────────────────────────────────────┐
 │  Neo4j  :7687  │   │  Qdrant  :6335 (host) → :6333 (internal) │
 │                │   │                                          │
-│  Typed nodes:  │   │  Collection: medgraph_chunks             │
-│  - Paper       │   │  Model: all-MiniLM-L6-v2 (384-dim)       │
-│  - Compound    │   │  30 dense vectors, one per paper         │
-│  - Disease     │   │  Cosine similarity search                │
-│  - Researcher  │   └──────────────────────────────────────────┘
-│  - Institution │
-│  - Journal     │
-│                │
-│  Typed edges:  │
+│  Typed nodes:  │   │  Collections:                            │
+│  - Paper       │   │  • medgraph_chunks  ← API semantic search│
+│  - Compound    │   │  • DocumentChunk_text  ┐                 │
+│  - Disease     │   │  • Entity_name         ├ Cognee internal │
+│  - Researcher  │   │  • TextSummary_text    ┘                 │
+│  - Institution │   │                                          │
+│  - Journal     │   │  Embeddings: all-MiniLM-L6-v2 (384-dim) │
+│                │   │  Similarity: cosine                      │
+│  Typed edges:  │   └──────────────────────────────────────────┘
 │  STUDIES       │
-│  TARGETS       │
-│  TESTED_AGAINST│
-│  AUTHORED      │
-│  AFFILIATED_WITH│
-│  CONDUCTED_AT  │
-│  COLLABORATED  │
-│  PUBLISHED_IN  │
-└────────────────┘
+│  TARGETS       │   ┌──────────────────────────────────────────┐
+│  TESTED_AGAINST│   │  Cognee 0.2.1  (ingest only)             │
+│  AUTHORED      │   │                                          │
+│  AFFILIATED_WITH│  │  vector backend → Qdrant (above)         │
+│  CONDUCTED_AT  │   │  graph backend  → Neo4j (above)          │
+│  COLLABORATED  │   │  LLM → GPT-4o-mini entity extraction     │
+│  PUBLISHED_IN  │   │  ENV=dev required (adapter bug workaround│
+└────────────────┘   └──────────────────────────────────────────┘
 ```
 
 ---
@@ -78,6 +78,7 @@ The pipeline runs in three sequential steps. Order matters — Cognee's `prune_s
 
 ### Step 1 — Cognee LLM pipeline (entity extraction)
 - Configures Cognee with Qdrant as its vector store (`cognee[qdrant]==0.2.1`) and Neo4j as its graph store
+- Sets `ENV=dev` in the environment — the Qdrant adapter does `os.getenv("ENV").lower()` and crashes if unset
 - Calls `prune_system(metadata=True)` — wipes all Qdrant collections and Neo4j data for a clean slate
 - Feeds all 30 paper texts to `cognee.add()` as dataset `medical_papers`
 - Calls `cognee.cognify()` which:
